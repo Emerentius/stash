@@ -16,9 +16,19 @@ struct Args {
 #[derive(clap::Subcommand, Debug)]
 enum Subcommand {
     List,
-    Push { name: String },
-    Show { name: String },
-    Pop { name: String },
+    Store {
+        name: String,
+        #[clap(short, long)]
+        append: bool,
+    },
+    Show {
+        name: String,
+        #[clap(short, long)]
+        delete: bool,
+    },
+    Delete {
+        name: String,
+    },
     Clear,
 }
 
@@ -103,21 +113,26 @@ fn main() -> Result<()> {
                 println!("{}: {}", stash.filename(), stash_time);
             }
         }
-        Subcommand::Push { name } => {
+        Subcommand::Store { name, append } => {
             let filename = name.to_string();
-            let mut file = fs_err::File::create(proj_dirs.data_dir().join(filename))?;
+            let path = proj_dirs.data_dir().join(filename);
+            let mut file = fs_err::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(append)
+                .open(path)?;
             std::io::copy(&mut std::io::stdin().lock(), &mut file)?;
         }
-        Subcommand::Show { name } => {
+        Subcommand::Show { name, delete } => {
             let desired_stash = Data::get(&proj_dirs, &name)?;
             print_stash(&proj_dirs, desired_stash.as_ref())?;
-        }
-        Subcommand::Pop { name } => {
-            let desired_stash = Data::get(&proj_dirs, &name)?;
-            print_stash(&proj_dirs, desired_stash.as_ref())?;
-            if let Some(stash) = desired_stash {
-                fs_err::remove_file(stash.path(&proj_dirs))?;
+            if delete {
+                delete_stash(&proj_dirs, desired_stash)?
             }
+        }
+        Subcommand::Delete { name } => {
+            let desired_stash = Data::get(&proj_dirs, &name)?;
+            delete_stash(&proj_dirs, desired_stash)?;
         }
         Subcommand::Clear => {
             for entry in proj_dirs.data_dir().fs_err_read_dir()? {
@@ -137,6 +152,13 @@ fn print_stash(proj_dir: &ProjectDirs, stash: Option<&Data>) -> Result<()> {
             std::io::copy(&mut file, &mut stdout.lock())?;
         }
         None => eprintln!("Stash does not exist"),
+    }
+    Ok(())
+}
+
+fn delete_stash(proj_dirs: &ProjectDirs, stash: Option<Data>) -> Result<()> {
+    if let Some(stash) = stash {
+        fs_err::remove_file(stash.path(proj_dirs))?;
     }
     Ok(())
 }
